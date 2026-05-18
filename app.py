@@ -240,7 +240,7 @@ def get_complexity(data):
         if max_h > 2:
             score += 2
     if score <= 1:
-        return "🔥"
+        return "✅"
     elif score <= 3:
         return "🟡"
     return "💀"
