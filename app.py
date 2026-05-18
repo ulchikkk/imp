@@ -601,8 +601,6 @@ async def step_vehicle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     ctx.user_data["calc_count"] += 1
     achievements = []
-    if ctx.user_data["calc_count"] == 1:
-        achievements.append("🏆 Первый расчёт дня")
     if ctx.user_data["calc_count"] == 5:
         achievements.append("🔥 5 расчётов подряд")
     ctx.user_data["achievements"] = achievements
