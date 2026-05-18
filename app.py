@@ -6,6 +6,8 @@
 import os
 import math
 import logging
+import random
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
@@ -109,6 +111,25 @@ VEHICLE_SPECS = {
 SVKH_KEYS   = ["ВОРСИНО", "ЭЛЕКТРОУГЛИ", "КОЛОМНА", "ВАРШАВКА"]
 VEHICLE_KEYS = ["авто", "газель", "газон", "7т", "фура"]
 
+THINKING_PHRASES = [
+    "🧠 Анализирую ставки, расстояние и уровень хаоса...",
+    "📞 Делаю вид, что обзваниваю перевозчиков...",
+    "🔍 Ищу адекватного подрядчика...",
+    "☕ Проверяю уровень кофеина логиста...",
+    "📊 Считаю вероятность фразы \'слишком дорого\'...",
+    "🚛 Прогреваю газель...",
+    "📦 Проверяю, влезет ли груз в реальность...",
+    "💸 Анализирую бюджет клиента...",
+    "😵 Сверяю ставки с уровнем боли...",
+    "📍 Ищу машину в квантовой суперпозиции...",
+    "📞 Спрашиваю водителя 'где машина?'...",
+    "🗂️ Перекладываю документы из одной папки в другую...",
+    "🚦 Согласовываю маршрут с богами логистики...",
+    "🤖 Симулирую интеллект...",
+    "📈 Натягиваю экономику на ставку..."
+]
+
+
 # ─── Математика ───────────────────────────────────────────────────────────────
 
 def haversine(a, b):
@@ -200,6 +221,45 @@ def kb2(buttons, one_time=True):
     return ReplyKeyboardMarkup(rows, resize_keyboard=True, one_time_keyboard=one_time)
 
 
+
+def get_complexity(data):
+    score = 0
+    if data.get("places", 1) > 8:
+        score += 1
+    if data.get("weight_kg") and data["weight_kg"] > 3000:
+        score += 1
+    if data.get("volume_m3") and data["volume_m3"] > 20:
+        score += 1
+    if data.get("extra_km", 0) > 20:
+        score += 1
+    if data.get("vehicle") in ["7т", "фура"]:
+        score += 2
+    dims = data.get("dims", [])
+    if dims:
+        max_h = max(d["h"] for d in dims)
+        if max_h > 2:
+            score += 2
+    if score <= 1:
+        return "🔥"
+    elif score <= 3:
+        return "🟡"
+    return "💀"
+
+
+async def cmd_boss(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["boss_mode"] = True
+    await update.message.reply_text(
+        '👔 Режим согласования ставки активирован.\n'
+        'Ответ: "слишком дорого" будет отправлен после ввода всех данных.\n\n'
+        'Чтобы отключить режим босса — /normal'
+    )
+
+
+async def cmd_normal(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    ctx.user_data["boss_mode"] = False
+    await update.message.reply_text("🙂 Режим босса отключён.")
+
+
 # ─── Финальный расчёт и вывод ─────────────────────────────────────────────────
 
 def build_result(d: dict) -> str:
@@ -248,6 +308,8 @@ def build_result(d: dict) -> str:
         extra_str = f" (+{extra_km:.1f} км нул. пробег)" if extra_km > 0.5 else ""
         lines.append(f"*Опорный город:* {base_city}{extra_str}")
     lines.append(f"*Тип ТС:* {spec['label']}")
+    complexity = get_complexity(d)
+    lines.append(f"*Сложность груза:* {complexity}")
 
     # Загрузка пола
     if floor_area is not None:
@@ -272,6 +334,8 @@ def build_result(d: dict) -> str:
         lines.append("")
 
     lines.append(f"💰 *ИТОГО: {fmt(total)}*")
+    if total > 30:
+        lines.append("💀 Это уже не доставка, это инвестиция.")
     lines.append(f"_{svkh} → {dest} · {spec['label']}_")
 
     return "\n".join(lines)
@@ -281,8 +345,11 @@ def build_result(d: dict) -> str:
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.clear()
+    ctx.user_data["calc_count"] = ctx.user_data.get("calc_count", 0)
     await update.message.reply_text(
-        "👋 *Импортэкс — расчёт доставки*\n\n"
+        "👋 *Привет мои дорогие коллеги!*\n\n"
+        "Этого ботика сделала Я (@ul4ikkk), и сейчас мы посчитаем реально актуальные "
+        "ставочки на автовывоз по Москве и МО 🚛\n\n"
         "Отвечай на вопросы по очереди.\n"
         "Для отмены в любой момент — /cancel\n\n"
         "*Шаг 1/7* — Сколько мест?",
@@ -523,7 +590,29 @@ async def step_vehicle(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return STEP_VEHICLE
 
     ctx.user_data["vehicle"] = vehicle
+
+    msg = await update.message.reply_text(random.choice(THINKING_PHRASES))
+    for _ in range(5):
+        await asyncio.sleep(1)
+        try:
+            await msg.edit_text(random.choice(THINKING_PHRASES))
+        except:
+            pass
+
+    ctx.user_data["calc_count"] += 1
+    achievements = []
+    if ctx.user_data["calc_count"] == 1:
+        achievements.append("🏆 Первый расчёт дня")
+    if ctx.user_data["calc_count"] == 5:
+        achievements.append("🔥 5 расчётов подряд")
+    ctx.user_data["achievements"] = achievements
+
     result = build_result(ctx.user_data)
+    if ctx.user_data.get("achievements"):
+        result += "\n\n" + "\n".join(ctx.user_data["achievements"])
+    if ctx.user_data.get("boss_mode"):
+        result += '\n\n👔 *Слишком дорого.*'
+
 
     await update.message.reply_text(
         result,
@@ -544,6 +633,7 @@ async def new_calc(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     ctx.user_data.clear()
+    ctx.user_data["calc_count"] = ctx.user_data.get("calc_count", 0)
     await update.message.reply_text(
         "❌ Расчёт отменён. Нажми /start чтобы начать заново.",
         reply_markup=ReplyKeyboardRemove(),
@@ -555,6 +645,8 @@ async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("boss", cmd_boss))
+    app.add_handler(CommandHandler("normal", cmd_normal))
 
     conv = ConversationHandler(
         entry_points=[
